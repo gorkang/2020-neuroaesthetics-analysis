@@ -9,10 +9,16 @@ add_annotations <- function(plot_object, model_object) {
   
   # DEBUG ---
   # model_object = model
-  # plot_object = plot_output2
+  # plot_object = plot_output
   
-  DF_arrows = parameters::parameters(model_object) %>% 
-    filter(p<.05) %>% 
+  
+  # DF_arrows = parameters::parameters(model_object) %>% 
+  #   filter(p<.05) %>%
+  #   filter(Parameter != "(Intercept)") %>% 
+  #   select(Parameter, p)
+  
+  DF_arrows = parameters::p_value(model_object, method = "ml1") %>% 
+    filter(p < .05) %>%
     filter(Parameter != "(Intercept)") %>% 
     select(Parameter, p)
   

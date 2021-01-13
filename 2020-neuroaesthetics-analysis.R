@@ -17,19 +17,23 @@ library(dplyr)
 library(forcats)
 library(janitor)
 library(lme4)
+library(patchwork)
 library(purrr)
 library(tidyr)
 library(readxl)
+library(webshot)
+library(gtsummary)
 
 # The perform_analysis() function filters the data, performs the analysis, creates a plot and an HTML table with the results
 source("R/perform_analysis.R")
 
 # Includes rainclod helper fn, add annotations...
 source("R/helper_functions.R")
+source("R/results_description.R")
 
 
 # Avoid scientific notation
-options(scipen=999)
+options(scipen = 999)
 
 
 # Read data ---------------------------------------------------------------
@@ -73,6 +77,7 @@ DF_all_raw = DF1_Like %>%
              resp %in% c("Approach", "Avoidance") ~ "Approach",
              TRUE ~ NA_character_
            ))) %>% 
+  rename(response = resp) %>% 
   
   # Remove unused columns
   select(-ceiling, -figure, -space, -pp_numb)
@@ -95,7 +100,9 @@ DF_all = DF_all_raw %>%
   left_join(DF_PAC, by = "image_id") %>% 
   rename(coherence = pc1_order,
          hominess = pc2_coziness, 
-         fascination = pc3_arousal)
+         fascination = pc3_arousal,
+         response = response,
+         participant_id = ID)
 
 
 # CHECKS ------------------------------------------------------------------
@@ -103,32 +110,20 @@ DF_all = DF_all_raw %>%
 CHECK_images_PCAs = DF_PAC %>% count(image_id) %>% distinct(n)
 if (CHECK_images_PCAs %>% nrow() != 1 | CHECK_images_PCAs$n != 1) stop("At least some images have more than 1 entry")
 
-CHECK_items_per_participant = DF_all %>% count(ID) %>% distinct(n)
+CHECK_items_per_participant = DF_all %>% count(participant_id) %>% distinct(n)
 if (CHECK_items_per_participant %>% nrow() != 1 | CHECK_items_per_participant$n != 80) stop("At least some participants don't have 80 items!")
 
-CHECK_items_per_participant_and_task = DF_all %>% count(ID, task) %>% distinct(task, n)
+CHECK_items_per_participant_and_task = DF_all %>% count(participant_id, task) %>% distinct(task, n)
 if (CHECK_items_per_participant_and_task %>% nrow() != 2 | all(CHECK_items_per_participant_and_task$n != c(40, 40))) stop("At least some participants don't have 40 items per task")
 
 CHECK_repetitions_per_item = DF_all %>% group_by(image_id) %>% count() %>% ungroup() %>% distinct(n)
 if (CHECK_repetitions_per_item %>% nrow() != 1 | CHECK_repetitions_per_item$n != 60) stop("At least some items appear more than once per participant")
 
-# # In ASC and NTD, some images are more likely to be used in Liking and others in Approach (it seems systematic)
-# DF_all %>% 
-#   group_by(group, image_id, task) %>% count() %>% 
-#   pivot_wider(names_from = c(group, task), values_from = n) %>% 
-#   arrange(NTD_Liking) 
-# 
-# # Although each participant saw exactly 40 images for each task
-# DF_all %>% 
-#   distinct(ID, image_id, task, .keep_all = TRUE) %>% # CAREFUL! HERE WE ELIMINATE DUPLICATES!
-#   group_by(ID, task) %>% count() %>% ungroup()
-# 
-# DF_all %>% 
-#   count(ID, image_id, task) 
-# 
-# DF_all %>% group_by(image_id, task) %>% count() 
 
 
+# Imbalance  --------------------------------------------------------------
+
+source("R/imbalance_checks.R")
 
 
 # Analyses ----------------------------------------------------------------
@@ -138,36 +133,167 @@ if (CHECK_repetitions_per_item %>% nrow() != 1 | CHECK_repetitions_per_item$n !=
 SD_filter_NUM = 4
 
 DF = DF_all %>% 
-    mutate(resp = as.factor(resp), 
-           image_id = as.factor(image_id)) 
+    mutate(response = as.factor(response), 
+           image_id = as.factor(image_id))
 
 
-perform_analysis(DF_input = DF,
-                 group_input = "Design",
-                 task_input = "Liking", 
-                 SD_filter = SD_filter_NUM)
 
-perform_analysis(DF_input = DF,
-                 group_input = "Design",
-                 task_input = "Approach", 
-                 SD_filter = SD_filter_NUM)
+## Autism spectrum participants --------------------------------------------
 
 perform_analysis(DF_input = DF,
                  group_input = "ASC",
                  task_input = "Liking", 
                  SD_filter = SD_filter_NUM)
 
+performance::check_collinearity(model_ASC_Liking)
+
+summary(report::report(model_ASC_Liking))
+report_result(model = model_ASC_Liking, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_ASC_Liking, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_ASC_Liking, variable_name = "fascination", df_method = "ml1")
+
+
 perform_analysis(DF_input = DF,
                  group_input = "ASC",
                  task_input = "Approach", 
                  SD_filter = SD_filter_NUM)
+
+performance::check_collinearity(model_ASC_Approach)
+
+summary(report::report(model_ASC_Approach))
+report_result(model = model_ASC_Approach, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_ASC_Approach, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_ASC_Approach, variable_name = "fascination", df_method = "ml1")
+
+
+
+
+## Neurotypical controls ---------------------------------------------------
+
 
 perform_analysis(DF_input = DF,
                  group_input = "NTD",
                  task_input = "Liking", 
                  SD_filter = SD_filter_NUM)
 
+performance::check_collinearity(model_NTD_Liking)
+
+summary(report::report(model_NTD_Liking))
+report_result(model = model_NTD_Liking, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_NTD_Liking, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_NTD_Liking, variable_name = "fascination", df_method = "ml1")
+
+
 perform_analysis(DF_input = DF,
                  group_input = "NTD",
                  task_input = "Approach", 
                  SD_filter = SD_filter_NUM)
+
+performance::check_collinearity(model_NTD_Approach)
+
+summary(report::report(model_NTD_Approach))
+report_result(model = model_NTD_Approach, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_NTD_Approach, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_NTD_Approach, variable_name = "fascination", df_method = "ml1")
+
+
+## Design quasi-experts ----------------------------------------------------
+
+perform_analysis(DF_input = DF,
+                 group_input = "Design",
+                 task_input = "Liking", 
+                 SD_filter = SD_filter_NUM)
+
+performance::check_collinearity(model_Design_Liking)
+
+
+summary(report::report(model_Design_Liking))
+report_result(model = model_Design_Liking, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_Design_Liking, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_Design_Liking, variable_name = "fascination", df_method = "ml1")
+
+
+
+perform_analysis(DF_input = DF,
+                 group_input = "Design",
+                 task_input = "Approach", 
+                 SD_filter = SD_filter_NUM)
+
+performance::check_collinearity(model_Design_Approach)
+
+summary(report::report(model_Design_Approach))
+report_result(model = model_Design_Approach, variable_name = "coherence", df_method = "ml1")
+report_result(model = model_Design_Approach, variable_name = "hominess", df_method = "ml1")
+report_result(model = model_Design_Approach, variable_name = "fascination", df_method = "ml1")
+
+
+
+
+
+
+# Final tables ------------------------------------------------------------
+
+sjPlot::tab_model(model_NTD_Liking, model_NTD_Approach, title = paste("NTD"), p.val = "ml1", file = paste0("outputs/ALL_NTD.html"),
+                  # show.std = TRUE, # std Beta
+                  transform = NULL,
+                  show.est = TRUE, # OR
+                  show.ci = 0.95,
+                  col.order = c("est", "se", "ci", "std.est", "std.se", "ci", "std.ci",  "p"),
+                  string.est = "beta (95% CI)",
+                  string.std = "std.B", 
+                  string.std_ci = "std.CI",
+                  collapse.ci = TRUE,
+                  linebreak = FALSE,
+                  digits.p = 5,
+                  show.p = TRUE,
+                  show.r2 = TRUE, 
+                  show.icc = FALSE, 
+                  show.re.var = FALSE)
+
+sjPlot::tab_model(model_Design_Liking, model_Design_Approach, p.val = "ml1", file = paste0("outputs/ALL_Design.html"),
+                  # show.std = TRUE, # std Beta
+                  transform = NULL,
+                  show.est = TRUE, # OR
+                  show.ci = 0.95,
+                  col.order = c("est", "se", "ci", "std.est", "std.se", "ci", "std.ci",  "p"),
+                  string.est = "beta (95% CI)",
+                  string.std = "std.B", 
+                  string.std_ci = "std.CI",
+                  collapse.ci = TRUE,
+                  linebreak = FALSE,
+                  digits.p = 5,
+                  show.p = TRUE,
+                  show.r2 = TRUE, 
+                  show.icc = FALSE, 
+                  show.re.var = FALSE)
+
+sjPlot::tab_model(model_ASC_Liking, model_ASC_Approach, p.val = "ml1", file = paste0("outputs/ALL_ASC.html"),
+                  # show.std = TRUE, # std Beta
+                  transform = NULL,
+                  show.est = TRUE, # OR
+                  show.ci = 0.95,
+                  col.order = c("est", "se", "ci", "std.est", "std.se", "ci", "std.ci",  "p"),
+                  string.est = "beta (95% CI)",
+                  string.std = "std.B", 
+                  string.std_ci = "std.CI",
+                  collapse.ci = TRUE,
+                  linebreak = FALSE,
+                  digits.p = 5,
+                  show.p = TRUE,
+                  show.r2 = TRUE, 
+                  show.icc = FALSE, 
+                  show.re.var = FALSE)
+
+
+
+# Final plots -------------------------------------------------------------
+
+plot_ASC = plot_ASC_Liking + plot_ASC_Approach
+suppressMessages(ggsave(filename = paste0("outputs/", "ALL_ASC_rain.png"), plot = plot_ASC, width = 18, height = 8, dpi = 300))
+
+
+plot_NTD = plot_NTD_Liking + plot_NTD_Approach
+suppressMessages(ggsave(filename = paste0("outputs/", "ALL_NTD_rain.png"), plot = plot_NTD, width = 18, height = 8, dpi = 300))
+
+plot_Design = plot_Design_Liking + plot_Design_Approach
+suppressMessages(ggsave(filename = paste0("outputs/", "ALL_Design_rain.png"), plot = plot_Design, width = 18, height = 8, dpi = 300))
